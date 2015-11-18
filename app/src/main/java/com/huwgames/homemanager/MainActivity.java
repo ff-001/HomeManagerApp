@@ -10,19 +10,26 @@ import android.content.Intent;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.net.Uri;
+import android.net.http.SslError;
 import android.os.Bundle;
 import android.provider.Settings;
+import android.util.Log;
 import android.view.Menu;
 import android.view.animation.AccelerateInterpolator;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
 import android.view.animation.AnimationUtils;
+import android.webkit.SslErrorHandler;
+import android.webkit.WebResourceError;
+import android.webkit.WebResourceRequest;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.ImageView;
 import android.widget.Toast;
 import android.widget.ViewSwitcher;
 
+import java.security.PublicKey;
 import java.util.Timer;
 import java.util.TimerTask;
 
@@ -54,6 +61,7 @@ public class MainActivity extends Activity {
     private ImageView imageView;
     private boolean mSplashing;
     private boolean displayWeb;
+    private boolean callView;
     private AnimationController animationController;
     private long durationMillis = 1000, delayMillis = 1000;
     @Override
@@ -77,11 +85,14 @@ public class MainActivity extends Activity {
     }
 
     private void LoadingWebview(){
-        if (isOpenNetwork()) {
+
             WebSettings webSettings = mWebView.getSettings();
             webSettings.setJavaScriptEnabled(true);
-
-            mWebView.loadUrl("http://m.3150000.cn");
+            if (isOpenNetwork()) {
+                mWebView.loadUrl("http://m.3150000.cn");
+            }else{
+                mWebView.loadUrl("file:///android_asset/error.html");
+            }
             imageView.setImageDrawable(getResources().getDrawable(R.drawable.startimage));
 
             container = (ViewSwitcher) findViewById(R.id.viewswitcher);
@@ -92,63 +103,60 @@ public class MainActivity extends Activity {
             container.setOutAnimation(slide_out_right);
 
             animationController = new AnimationController();
-            Phone phone = new Phone();
-            mWebView.addJavascriptInterface(phone, "androidPhoneObject");
             //web settings
-            mWebView.setWebViewClient(new MyAppWebViewClient() {
+            mWebView.setWebViewClient(new WebViewClient() {
                 public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                    view.loadUrl(url);
-                    return true;
+                    if (url.startsWith("tel:") || url.startsWith("mailto:")) {
+                        Intent intent = new Intent(Intent.ACTION_VIEW,
+                                Uri.parse(url));
+                        callView = true;
+                        startActivity(intent);
+                    }
+                    else if(url.startsWith("http:") || url.startsWith("https:")) {
+
+                        callView = false;
+                        view.loadUrl(url);
+                    }
+                    return super.shouldOverrideUrlLoading(view, url);
                 }
-            });
-            mWebView.setWebChromeClient(new MyWebChromeClient() {
+
                 @Override
-                public void onProgressChanged(WebView view, int newProgress) {
-                    super.onProgressChanged(view, newProgress);
-                    if (displayWeb == true && newProgress == 100) {
-                        fadeOutAndHideImage(imageView);
-                        animationController.hide(view);
-                        animationController.slideFadeIn(mWebView, durationMillis, 500);
-                        mSplashing = false;
-                        displayWeb = false;
+                public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+                    super.onReceivedError(view, request, error);
+                    if (callView = false) {
+                        mWebView.loadUrl("file:///android_asset/error.html");
                     }
                 }
-            });
-        } else {
-            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
-            builder.setTitle("没有可用的网络").setMessage("是否对网络进行设置?");
 
-            builder.setPositiveButton("是", new DialogInterface.OnClickListener() {
                 @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    Intent intent = null;
-
-                    try {
-                        String sdkVersion = android.os.Build.VERSION.SDK;
-                        if(Integer.valueOf(sdkVersion) > 10) {
-                            intent = new Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS);
-                        }else {
-                            intent = new Intent();
-                            ComponentName comp = new ComponentName("com.android.settings", "com.android.settings.WirelessSettings");
-                            intent.setComponent(comp);
-                            intent.setAction("android.intent.action.VIEW");
-                        }
-                        MainActivity.this.startActivity(intent);
-                    } catch (Exception e) {
-//                        Log.w(TAG, "open network settings failed, please check...");
-                        e.printStackTrace();
+                public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
+                    super.onReceivedError(view, errorCode, description, failingUrl);
+                    if (callView = false) {
+                        mWebView.loadUrl("file:///android_asset/error.html");
                     }
                 }
-            }).setNegativeButton("否", new DialogInterface.OnClickListener() {
+
                 @Override
-                public void onClick(DialogInterface dialog, int which) {
-                    dialog.cancel();
-                    finish();
+                public void onReceivedSslError(WebView view, SslErrorHandler handler, SslError error) {
+                    handler.proceed();
                 }
-            }).show();
+            });
+
+        mWebView.setWebChromeClient(new MyWebChromeClient() {
+            @Override
+            public void onProgressChanged(WebView view, int newProgress) {
+                super.onProgressChanged(view, newProgress);
+                if (displayWeb == true && newProgress == 100) {
+                    fadeOutAndHideImage(imageView);
+                    animationController.hide(view);
+                    animationController.slideFadeIn(mWebView, durationMillis, 500);
+                    mSplashing = false;
+                    displayWeb = false;
+                }
+            }
+        });
         }
-    }
-
+    boolean AlreadyBack = false;
     @Override
     public void onBackPressed() {
         if (!mSplashing) {
@@ -157,6 +165,17 @@ public class MainActivity extends Activity {
             } else {
                 exitBy2Click();
             }
+//            if ((!mWebView.getUrl().equals("http://m.3150000.cn")) && mWebView.canGoBack() && AlreadyBack == false) {
+//                mWebView.goBack();
+//                AlreadyBack = true;
+//                mWebView.clearHistory();
+//            } else if ( AlreadyBack == true ){
+//                mWebView.clearHistory();
+//                mWebView.loadUrl("http://m.3150000.cn");
+//                AlreadyBack = false;
+//            } else if (mWebView.getUrl().equals("http://m.3150000.cn")){
+//                exitBy2Click();
+//            }
         }
     }
     private static Boolean isExit = false;
@@ -175,27 +194,11 @@ public class MainActivity extends Activity {
             }, 2000);
 
         } else {
+            mWebView.clearCache(true);
+            mWebView.clearHistory();
             finish();
             System.exit(0);
         }
-    }
-
-
-    @Override
-    public boolean onCreateOptionsMenu(Menu menu) {
-        if (mSplashing) {
-            return false;
-        }
-        menu.add(0, MENU_ADD_TASK, 0, R.string.hello_world);
-        return super.onCreateOptionsMenu(menu);
-    }
-
-    @Override
-    public boolean onPrepareOptionsMenu(Menu menu) {
-        if (mSplashing) {
-            return false;
-        }
-        return super.onPrepareOptionsMenu(menu);
     }
 
     private boolean isOpenNetwork() {
@@ -205,14 +208,5 @@ public class MainActivity extends Activity {
         }
 
         return false;
-    }
-
-    //下面是打电话的操作方法
-    final class Phone {
-        public void call(String mobile) {
-            Uri uri = Uri.parse("tel:" + mobile);
-            Intent intent = new Intent(Intent.ACTION_CALL, uri);
-            startActivity(intent);
-        }
     }
 }
